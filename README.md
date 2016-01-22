@@ -1,0 +1,2 @@
+# addtool
+usage: ./addtool \<filename\>

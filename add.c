@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
 	fp = fopen(argv[1],"r");
 	if(fp == NULL)
 	{
-		printf("can not open file %s\n", argv);
+		printf("can not open file %s\n", argv[1]);
 		return -1;
 	}
 	char *jumpgot_name = malloc(strlen(".jumpgot") + strlen(argv[1]) + 1);

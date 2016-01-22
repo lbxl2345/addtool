@@ -1,2 +1,2 @@
 # addtool
-usage: ./addtool <filename>
+usage: ./addtool \<filename\>

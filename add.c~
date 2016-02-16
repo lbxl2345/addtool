@@ -3,6 +3,8 @@
 #include <string.h>
 #include <unistd.h>
 #include "elf.h"
+
+int jump_pos = 0;
 /**file struct//
 jshdr
 jumptable
@@ -51,14 +53,14 @@ int jumpgot_write_back(uint8_t *back)
 	
 	back[pos++] = 0x50;	//push rax
 	back[pos++] = 0x51;	//push rcx
-	
+
 	back[pos++] = 0xb8;	//mov eax, 0
 	back[pos++] = 0x00;
 	back[pos++] = 0x00;
 	back[pos++] = 0x00;
 	back[pos++] = 0x00;
 	back[pos++] = 0xb9;	//mov ecx, 1
-	back[pos++] = 0x01;
+	back[pos++] = 0x00;
 	back[pos++] = 0x00;
 	back[pos++] = 0x00;
 	back[pos++] = 0x00;
@@ -66,8 +68,7 @@ int jumpgot_write_back(uint8_t *back)
 	back[pos++] = 0x01;
 	back[pos++] = 0xd4;
 	
-	//nop
-	/*
+	/*//nop
 	back[pos++] = 0x90;
 	back[pos++] = 0x90;
 	back[pos++] = 0x90;
@@ -80,56 +81,14 @@ int jumpgot_write_back(uint8_t *back)
 	back[pos++] = 0x90;
 	back[pos++] = 0x90;
 	back[pos++] = 0x90;
-	back[pos++] = 0x90;
-	*/
-	
-	/*for test length:38*/
-	back[pos++] = 0x57;	//push rdi
-	back[pos++] = 0x56;	//push rsi
-	back[pos++] = 0x52;	//push rdx
-	back[pos++] = 0x6a;	//push 0x40
-	back[pos++] = 0x40;
-	back[pos++] = 0x48;	//mov rax, 0x1
-	back[pos++] = 0xc7;
-	back[pos++] = 0xc0;
-	back[pos++] = 0x01;
-	back[pos++] = 0x00;
-	back[pos++] = 0x00;
-	back[pos++] = 0x00;
-	back[pos++] = 0x48;	//mov rdi, 0x1
-	back[pos++] = 0xc7;
-	back[pos++] = 0xc7;
-	back[pos++] = 0x01;
-	back[pos++] = 0x00;
-	back[pos++] = 0x00;
-	back[pos++] = 0x00;
-	back[pos++] = 0x48;	//mov rsi, rsp
-	back[pos++] = 0x89;
-	back[pos++] = 0xe6;
-	back[pos++] = 0x48;	//mov rdx, 0x1
-	back[pos++] = 0xc7;
-	back[pos++] = 0xc2;
-	back[pos++] = 0x01;
-	back[pos++] = 0x00;
-	back[pos++] = 0x00;
-	back[pos++] = 0x00;
-	back[pos++] = 0x0f;	//syscall
-	back[pos++] = 0x05;
-	back[pos++] = 0x48;	//add rsp, 0x8
-	back[pos++] = 0x83;
-	back[pos++] = 0xc4;
-	back[pos++] = 0x08;
-	back[pos++] = 0x5a;	//pop rdx
-	back[pos++] = 0x5e;	//pop rsi
-	back[pos++] = 0x5f;	//pop rdi
-	/*ret*/
+	back[pos++] = 0x90;*/
 	back[pos++] = 0x59;	//pop rcx
 	back[pos++] = 0x58;	//pop rax
 	back[pos++] = 0xc3;	//ret
 }
 int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 {
-	int pos = 0;
+	int pos = jump_pos;
 	uint32_t offset = (jshdr.sgot_off + SGOT_SIZE * i) - (jshdr.jump_off + JUMP_SIZE * (i + 1));
 	uint32_t back_offset = jshdr.back_off - (jshdr.jump_off + JUMP_SIZE * i + INSN_OFF);
 	jump[pos++] = 0x50;	//push rax
@@ -142,7 +101,7 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x00;
 	jump[pos++] = 0x00;
 	jump[pos++] = 0xb9;	//mov ecx,0 
-	jump[pos++] = 0x00;
+	jump[pos++] = 0x01;
 	jump[pos++] = 0x00;
 	jump[pos++] = 0x00;
 	jump[pos++] = 0x00;
@@ -150,41 +109,6 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x01;
 	jump[pos++] = 0xd4;
 	
-	/*for test length:32*/
-	/*
-	jump[pos++] = 0x6a;	//push 0x23
-	jump[pos++] = 0x23;
-	jump[pos++] = 0x48;	//mov rax, 0x1
-	jump[pos++] = 0xc7;
-	jump[pos++] = 0xc0;
-	jump[pos++] = 0x01;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x48;	//mov rdi, 0x1
-	jump[pos++] = 0xc7;
-	jump[pos++] = 0xc7;
-	jump[pos++] = 0x01;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x48;	//mov rsi, rsp
-	jump[pos++] = 0x89;
-	jump[pos++] = 0xe6;
-	jump[pos++] = 0x48;	//mov rdx, 0x1
-	jump[pos++] = 0xc7;
-	jump[pos++] = 0xc2;
-	jump[pos++] = 0x01;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x0f;	//syscall
-	jump[pos++] = 0x05;
-	jump[pos++] = 0x48;	//add rsp, 0x8
-	jump[pos++] = 0x83;
-	jump[pos++] = 0xc4;
-	jump[pos++] = 0x08;
-	*/
 	//nop
 	/*
 	jump[pos++] = 0x90;
@@ -218,7 +142,7 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x89;
 	jump[pos++] = 0x44;
 	jump[pos++] = 0x24;
-	jump[pos++] = 0x10;	
+	jump[pos++] = 0x10;
 	jump[pos++] = 0x59;	//pop rcx
 	jump[pos++] = 0x58; //pop rax
 	//jump[pos++] = 0x58; //pop rax
@@ -228,6 +152,7 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = ((uint32_t)offset>>8) & 0xff;
 	jump[pos++] = ((uint32_t)offset>>16) & 0xff;
 	jump[pos++] = ((uint32_t)offset>>24) & 0xff;
+	jump_pos = pos;
 }
 int main(int argc, char* argv[])
 {

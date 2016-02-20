@@ -52,6 +52,8 @@ int jumpgot_write_back(uint8_t *back)
 	back[pos++] = 0x50;	//push rax
 	back[pos++] = 0x51;	//push rcx
 	
+	
+
 	back[pos++] = 0xb8;	//mov eax, 0
 	back[pos++] = 0x00;
 	back[pos++] = 0x00;
@@ -136,24 +138,12 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x50;	//push rax
 	jump[pos++] = 0x51;	//push rcx
 	
-	jump[pos++] = 0xb8;	//mov eax,0
-	jump[pos++] = 0x00;	
-	jump[pos++] = 0x00;	
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0xb9;	//mov ecx,0 
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x0f;	//vmfunc
-	jump[pos++] = 0x01;
-	jump[pos++] = 0xd4;
-	
-	/*for test length:32*/
-	/*
-	jump[pos++] = 0x6a;	//push 0x23
-	jump[pos++] = 0x23;
+	/*for test length:38*/
+	jump[pos++] = 0x57;	//push rdi
+	jump[pos++] = 0x56;	//push rsi
+	jump[pos++] = 0x52;	//push rdx
+	jump[pos++] = 0x6a;	//push 0x40
+	jump[pos++] = 0x26;
 	jump[pos++] = 0x48;	//mov rax, 0x1
 	jump[pos++] = 0xc7;
 	jump[pos++] = 0xc0;
@@ -184,7 +174,25 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x83;
 	jump[pos++] = 0xc4;
 	jump[pos++] = 0x08;
-	*/
+	jump[pos++] = 0x5a;	//pop rdx
+	jump[pos++] = 0x5e;	//pop rsi
+	jump[pos++] = 0x5f;	//pop rdi
+
+	jump[pos++] = 0xb8;	//mov eax,0
+	jump[pos++] = 0x00;	
+	jump[pos++] = 0x00;	
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0xb9;	//mov ecx,0 
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x0f;	//vmfunc
+	jump[pos++] = 0x01;
+	jump[pos++] = 0xd4;
+	
+
 	//nop
 	/*
 	jump[pos++] = 0x90;
@@ -222,6 +230,7 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x59;	//pop rcx
 	jump[pos++] = 0x58; //pop rax
 	//jump[pos++] = 0x58; //pop rax
+
 	jump[pos++] = 0xff;	//jmp got address 6 loc
 	jump[pos++] = 0x25;
 	jump[pos++] = ((uint32_t)offset>>0) & 0xff;

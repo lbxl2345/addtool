@@ -1,8 +1,8 @@
 #include <stdint.h>
-#define JUMP_SIZE 42/*42*/
+#define JUMP_SIZE 80/*42*/
 #define SGOT_SIZE 8
 #define BACK_SIZE 56/* 18*/
-#define INSN_OFF 23/*23*/
+#define INSN_OFF 61 /*23*/
 #define EI_NIDENT (16)
 
 #define PT_NULL   0   /* Program header table entry unused */

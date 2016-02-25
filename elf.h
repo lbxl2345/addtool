@@ -1,5 +1,7 @@
 #include <stdint.h>
 #define JUMP_SIZE 80/*42*/
+#define JUMP_RESOLVE_SIZE 110
+#define JUMP_INSN_OFF 61/*23*/
 #define SGOT_SIZE 8
 #define BACK_SIZE 56/* 18*/
 #define INSN_OFF 61 /*23*/
@@ -68,10 +70,12 @@ typedef struct
 
 typedef struct js_header
 {
+  uint32_t jump_resolve_size;
   uint32_t jump_size;
   uint32_t sgot_size;
   uint32_t zero_size;
   uint32_t back_size;
+  uint32_t jump_resolve_off;
   uint32_t jump_off;
   uint32_t sgot_off;
   uint32_t back_off;

@@ -284,7 +284,7 @@ int main(int argc, char* argv[])
 		sh_temp++;
 	}
 	printf("plt size:%d\n",(unsigned)sh_temp->sh_size);
-	int pltnum = sh_temp->sh_size/16 - 1;
+	int pltnum = sh_temp->sh_size/16;
 	jumpgot_write(pltnum, fw);
 	fclose(fp);
 	fclose(fw);

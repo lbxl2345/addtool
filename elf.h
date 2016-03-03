@@ -5,6 +5,7 @@
 #define SGOT_SIZE 8
 #define BACK_SIZE 56/* 18*/
 #define INSN_OFF 61 /*23*/
+#define ADD_SIZE 56
 #define EI_NIDENT (16)
 
 #define PT_NULL   0   /* Program header table entry unused */
@@ -79,4 +80,6 @@ typedef struct js_header
   uint32_t jump_off;
   uint32_t sgot_off;
   uint32_t back_off;
+  uint64_t entry_off;
+  uint64_t entry_addr;
 }js_header;

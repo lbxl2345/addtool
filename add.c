@@ -9,19 +9,65 @@ jumptable
 sgottable
 backtable
 ***************/
-int jumpgot_write(int n, FILE* fp)
-{
+int jumpgot_write(int n, FILE* fp, FILE* fo, Elf64_Shdr *shdr, Elf64_Ehdr *ehdr)
+{	
+	//file modify part
+	//get entry offset
+	struct js_header jshdr;
+	Elf64_Xword old_entry = ehdr->e_entry;
+	Elf64_Shdr *p_shdr = shdr;
+	Elf64_Xword file_end = 0;
+	Elf64_Xword entry_off = 0;
+	Elf64_Xword entry_addr = 0;
+	//calculate file end
+	for(int i = 0; i < ehdr->e_shnum; i++)
+	{
+		printf("section%d\tfilesize:%lx,\t offset:%lx\n", i, (unsigned long)p_shdr->sh_size,  (unsigned long)p_shdr->sh_offset);
+		if(entry_off < p_shdr->sh_offset + p_shdr->sh_size)
+			entry_off =  p_shdr->sh_offset + p_shdr->sh_size;
+		p_shdr++;
+	}
+	file_end = entry_off;
+	printf("end of file:%lx\n", (unsigned long)file_end);
+	//calculate new entry filled zero size
+	uint32_t page_size = getpagesize();
+	uint32_t zero_entry_size = page_size - entry_off%page_size;
+	entry_off = entry_off+ page_size - entry_off%page_size;
+	jshdr.entry_off = entry_off;
+	printf("new_page is :%lx\n", entry_off);
+	//calculate entry v addr
+	Elf64_Phdr *phdr = malloc(sizeof(Elf64_Phdr) * ehdr->e_phnum);
+	fseek(fo, ehdr->e_phoff, SEEK_SET);
+	fread(phdr, sizeof(Elf64_Phdr), ehdr->e_phnum, fo);
+	Elf64_Phdr *p_phdr = phdr; 
+	//go through the segments
+	for(int i = 0; i < ehdr->e_phnum; i++)
+	{
+		printf("%d\n", i);
+		printf("%lx, %lx\n", p_phdr->p_vaddr, p_phdr->p_memsz);
+		if(entry_addr < p_phdr->p_vaddr + p_phdr->p_memsz)
+			entry_addr=  p_phdr->p_vaddr + p_phdr->p_memsz; 
+		p_phdr++;
+		printf("%lx\n", (unsigned long)entry_addr);
+	}
+	entry_addr = (entry_addr / page_size + 1) * page_size;
+	jshdr.entry_addr = entry_addr;
+	ehdr->e_entry = entry_addr;
+	printf("entry_off is :%lx\n", entry_addr);
+	//calculate the offset in instructions
+	uint32_t cal_offset = ~(entry_addr + ADD_SIZE - old_entry) + 1;
+	rewrite_entry(fo, file_end, ehdr, zero_entry_size, cal_offset);
+
 	//file starts with the offsets of jump and sgot
 	uint8_t *jump_resolve = malloc(JUMP_RESOLVE_SIZE * sizeof(uint8_t));
 	uint8_t *jump = malloc(JUMP_SIZE * n * sizeof(uint8_t));
 	uint8_t *sgot = malloc(SGOT_SIZE * (n + 1) * sizeof(uint8_t));
 	uint8_t *back = malloc(BACK_SIZE * sizeof(uint8_t));
-	struct js_header jshdr;
+	
 	jshdr.jump_resolve_size = JUMP_RESOLVE_SIZE;
 	jshdr.jump_size = JUMP_SIZE * n;
 	jshdr.sgot_size = SGOT_SIZE * (n + 1);
 	jshdr.back_size = BACK_SIZE;
-	uint32_t page_size = getpagesize();
 	uint32_t zero_size = page_size - (sizeof(jshdr) + jshdr.jump_resolve_size + jshdr.jump_size)%page_size;
 	uint8_t *zero = malloc(zero_size * sizeof(uint8_t));
 	memset(zero , 0, zero_size);
@@ -279,8 +325,8 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x56;	//push rsi
 	jump[pos++] = 0x52;	//push rdx
 	jump[pos++] = 0x6a;	//push 0x40
-	jump[pos++] = 0x21
-	;
+	jump[pos++] = 0x21;
+
 	jump[pos++] = 0x48;	//mov rax, 0x1
 	jump[pos++] = 0xc7;
 	jump[pos++] = 0xc0;
@@ -375,10 +421,87 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = ((uint32_t)offset>>16) & 0xff;
 	jump[pos++] = ((uint32_t)offset>>24) & 0xff;
 }
+int rewrite_entry(FILE *fp, Elf64_Xword file_end, Elf64_Ehdr *ehdr, uint32_t zero_size, uint32_t offset)
+{
+	printf("%lx\n",(unsigned long)offset);
+	uint8_t *zero = malloc(zero_size * sizeof(uint8_t));
+	fseek(fp, 0, SEEK_SET);
+	fwrite( ehdr, sizeof(Elf64_Ehdr), 1, fp);
+	fseek(fp, file_end, SEEK_SET);
+	memset(zero , 0, zero_size);
+	fwrite(zero, zero_size, 1, fp);
+	uint8_t  *entry = malloc(ADD_SIZE * sizeof(uint8_t));
+	int pos = 0;
+	entry[pos++] = 0xb8;	//mov eax,0
+	entry[pos++] = 0x00;	
+	entry[pos++] = 0x00;	
+	entry[pos++] = 0x00;	
+	entry[pos++] = 0x00;	
+	entry[pos++] = 0xb9;	//mov ecx,0 
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x0f;	//vmfunc
+	entry[pos++] = 0x01;
+	entry[pos++] = 0xd4;
+
+	/*for test length:38*/
+	entry[pos++] = 0x57;	//push rdi
+	entry[pos++] = 0x56;	//push rsi
+	entry[pos++] = 0x52;	//push rdx
+	entry[pos++] = 0x6a;	//push 0x40
+	entry[pos++] = 0x7e;
+	entry[pos++] = 0x48;	//mov rax, 0x1
+	entry[pos++] = 0xc7;
+	entry[pos++] = 0xc0;
+	entry[pos++] = 0x01;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x48;	//mov rdi, 0x1
+	entry[pos++] = 0xc7;
+	entry[pos++] = 0xc7;
+	entry[pos++] = 0x01;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x48;	//mov rsi, rsp
+	entry[pos++] = 0x89;
+	entry[pos++] = 0xe6;
+	entry[pos++] = 0x48;	//mov rdx, 0x1
+	entry[pos++] = 0xc7;
+	entry[pos++] = 0xc2;
+	entry[pos++] = 0x01;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x00;
+	entry[pos++] = 0x0f;	//syscall
+	entry[pos++] = 0x05;
+	entry[pos++] = 0x48;	//add rsp, 0x8
+	entry[pos++] = 0x83;
+	entry[pos++] = 0xc4;
+	entry[pos++] = 0x08;
+	entry[pos++] = 0x5a;	//pop rdx
+	entry[pos++] = 0x5e;	//pop rsi
+	entry[pos++] = 0x5f;	//pop rdi
+
+
+	// entry[pos++] = 0xff;
+	// entry[pos++] = 0x25;
+	entry[pos++] = 0xe9;				//jmp
+	entry[pos++] = ((uint32_t)offset>>0) & 0xff;
+	entry[pos++] = ((uint32_t)offset>>8) & 0xff;
+	entry[pos++] = ((uint32_t)offset>>16) & 0xff;
+	entry[pos++] = ((uint32_t)offset>>24) & 0xff;
+
+	fwrite(entry, ADD_SIZE, 1, fp);
+
+}
 int main(int argc, char* argv[])
 {
 	FILE *fp, *fa, *fw;
-	fp = fopen(argv[1],"r");
+	fp = fopen(argv[1],"rb+");
 	if(fp == NULL)
 	{
 		printf("can not open file %s\n", argv[1]);
@@ -422,7 +545,28 @@ int main(int argc, char* argv[])
 	}
 	printf("plt size:%d\n",(unsigned)sh_temp->sh_size);
 	int pltnum = sh_temp->sh_size/16;
-	jumpgot_write(pltnum, fw);
+	jumpgot_write(pltnum, fw, fp, shdr, ehdr);
+	//get program header
+	// Elf64_Phdr *phdr = malloc(sizeof(Elf64_Phdr) * ehdr->e_phnum);
+	// fseek(fp, ehdr->e_phoff, SEEK_SET);
+	// fread(phdr, sizeof(Elf64_Phdr), ehdr->e_phnum, fp);
+	// Elf64_Phdr *p_phdr = phdr;
+	// for(int i = 0; i < ehdr->e_phnum; i++)
+	// {
+	// 	printf("segment %d\tfilesize:%lx,\t offset:%lx\n", i, (unsigned long)p_phdr->p_filesz,  (unsigned long)p_phdr->p_offset);
+	// 	p_phdr++;
+	// }
+	// Elf64_Shdr *p_shdr = shdr;
+	// Elf64_Xword file_end = 0;
+	// for(int i = 0; i < ehdr->e_shnum; i++)
+	// {
+	// 	printf("section%d\tfilesize:%lx,\t offset:%lx\n", i, (unsigned long)p_shdr->sh_size,  (unsigned long)p_shdr->sh_offset);
+	// 	if(file_end < p_shdr->sh_offset + p_shdr->sh_size)
+	// 		file_end =  p_shdr->sh_offset + p_shdr->sh_size;
+	// 	p_shdr++;
+	// }
+	// printf("end of file:%lu\n", (unsigned long)file_end);
+	// rewrite_entry(fp, file_end, ehdr);
 	fclose(fp);
 	fclose(fw);
 	return 0;

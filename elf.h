@@ -1,11 +1,15 @@
 #include <stdint.h>
-#define JUMP_SIZE 80/*42*/
-#define JUMP_RESOLVE_SIZE 110
-#define JUMP_INSN_OFF 61/*23*/
+#define JUMP_SIZE 106//86//80/*42*/
+#define JUMP_RESOLVE_SIZE 106
+#define RESOLVE_INSN_OFF 92//61/*23*///+
 #define SGOT_SIZE 8
-#define BACK_SIZE 56/* 18*/
-#define INSN_OFF 61 /*23*/
+#define BACK_SIZE 90//56/* 18*/
+#define JUMP_INSN_OFF 92//67//61 /*23*/
+#define RESOLVE_STACK_OFF 61
 #define ADD_SIZE 56
+#define CHECK_OFF  62//60
+#define JUMP_STACK_OFF 61
+#define BACK_STACK_OFF 62
 #define EI_NIDENT (16)
 
 #define PT_NULL   0   /* Program header table entry unused */
@@ -82,4 +86,6 @@ typedef struct js_header
   uint32_t back_off;
   uint64_t entry_off;
   uint64_t entry_addr;
+  uint32_t check_off;
+  uint32_t stack_off
 }js_header;

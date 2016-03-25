@@ -83,8 +83,8 @@ int jumpgot_write(int n, FILE* fp, FILE* fo, Elf64_Shdr *shdr, Elf64_Ehdr *ehdr)
 	jshdr.jump_off = sizeof(jshdr) + jshdr.jump_resolve_size;
 	jshdr.sgot_off = sizeof(jshdr) + jshdr.jump_resolve_size + jshdr.jump_size + jshdr.back_size+ zero_size;
 	jshdr.back_off = jshdr.jump_off + jshdr.jump_size;
-	jshdr.check_off = jshdr.back_off - SGOT_SIZE;
 	jshdr.stack_off = jshdr.sgot_off + jshdr.sgot_size + sgot_zero_size; 
+	jshdr.check_off = jshdr.stack_off - SGOT_SIZE;
 	printf("back_off%x\n", jshdr.back_off);
 	printf("jump_off%x\n", jshdr.jump_off);
 	printf("sgot_off%x\n", jshdr.sgot_off);
@@ -333,11 +333,42 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	uint32_t offset = (jshdr.sgot_off + SGOT_SIZE * (i + 1)) - (jshdr.jump_off + JUMP_SIZE * (i + 1));
 	uint32_t back_offset = jshdr.back_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_INSN_OFF);
 	uint32_t stack_offset = jshdr.stack_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACK_OFF);
-	
-	
+	uint32_t check_offset = jshdr.check_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_CHECK_OFF);
 	jump[pos++] = 0x50;	//push rax
 	jump[pos++] = 0x53;	//push rbx
 	jump[pos++] = 0x51;	//push rcx	
+
+	jump[pos++] = 0x41;	//push r9
+	jump[pos++] = 0x51;
+	jump[pos++] = 0x41;	//push r8
+	jump[pos++] = 0x50;
+	jump[pos++] = 0x51;	//push rcx
+	jump[pos++] = 0x52;	//push rdx
+	jump[pos++] = 0x56;	//push rsi
+	jump[pos++] = 0x57;	//push rdi
+
+	jump[pos++] = 0x48;	//lea rdi, [rip]
+	jump[pos++] = 0x8d;
+	jump[pos++] = 0x3d;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0xff;	//call check
+	jump[pos++] = 0x15;
+	jump[pos++] =  ((uint32_t)check_offset>>0) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>8) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>16) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>24) & 0xff;
+	
+	jump[pos++] = 0x5f;	//pop rdi
+	jump[pos++] = 0x5e;	//pop rsi
+	jump[pos++] = 0x5a;	//pop rdx
+	jump[pos++] = 0x59;	//pop rcx
+	jump[pos++] = 0x41;	//pop r8
+	jump[pos++] = 0x58;
+	jump[pos++] = 0x41;	//pop r9
+	jump[pos++] = 0x59;
 	/*for test length:38*/
 	jump[pos++] = 0x57;	//push rdi
 	jump[pos++] = 0x56;	//push rsi
@@ -464,7 +495,7 @@ int rewrite_entry(FILE *fp, Elf64_Xword file_end, Elf64_Ehdr *ehdr, uint32_t zer
 	entry[pos++] = 0x00;	
 	entry[pos++] = 0x00;	
 	entry[pos++] = 0xb9;	//mov ecx,0 
-	entry[pos++] = 0x00;
+	entry[pos++] = 0x01;
 	entry[pos++] = 0x00;
 	entry[pos++] = 0x00;
 	entry[pos++] = 0x00;

@@ -1,14 +1,14 @@
 #include <stdint.h>
-#define JUMP_SIZE 106//86//80/*42*/
+#define JUMP_SIZE 135//106//86
 #define JUMP_RESOLVE_SIZE 106
 #define RESOLVE_INSN_OFF 92//61/*23*///+
 #define SGOT_SIZE 8
 #define BACK_SIZE 90//56/* 18*/
-#define JUMP_INSN_OFF 92//67//61 /*23*/
+#define JUMP_INSN_OFF 121//92//67//61 /*23*/
 #define RESOLVE_STACK_OFF 61
 #define ADD_SIZE 56
-#define CHECK_OFF  62//60
-#define JUMP_STACK_OFF 61
+#define JUMP_CHECK_OFF  24//62//60
+#define JUMP_STACK_OFF 90//61sssssssssss
 #define BACK_STACK_OFF 62
 #define EI_NIDENT (16)
 

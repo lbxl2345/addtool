@@ -1,15 +1,29 @@
 #include <stdint.h>
-#define JUMP_SIZE 135//106//86
-#define JUMP_RESOLVE_SIZE 106
+#define JUMP_SIZE 184//135//106//86
+#define JUMP_RESOLVE_SIZE 63//106
+#define RESOLVE_STACKGOT_OFF1 109
+#define RESOLVE_STACKGOT_OFF2 132
+#define RESOLVE_STACKGOT_OFF3 142
 #define RESOLVE_INSN_OFF 92//61/*23*///+
 #define SGOT_SIZE 8
-#define BACK_SIZE 90//56/* 18*/
+#define BACK_8PARAM_SIZE 112
+#define BACK_SIZE 108//90//56/* 18*/
 #define JUMP_INSN_OFF 121//92//67//61 /*23*/
 #define RESOLVE_STACK_OFF 61
 #define ADD_SIZE 56
 #define JUMP_CHECK_OFF  24//62//60
-#define JUMP_STACK_OFF 90//61sssssssssss
+#define JUMP_STACK_OFF 90//61
+#define BACK_FLAG_OFF 107
 #define BACK_STACK_OFF 62
+#define BACK_STACKGOT_OFF 96
+#define BACK_8PARAM_FLAG_OFF 111
+#define BACK_8PARAM_STACK_OFF 62
+#define BACK_8PARAM_STACKGOT_OFF 100
+#define JUMP_STACKGOT_OFF1 90
+#define JUMP_STACKGOT_OFF2 135
+#define JUMP_STACKGOT_OFF3 178
+#define JUMP_FLAG_OFF1 144
+#define JUMP_FLAG_OFF2 171
 #define EI_NIDENT (16)
 
 #define PT_NULL   0   /* Program header table entry unused */
@@ -79,13 +93,17 @@ typedef struct js_header
   uint32_t jump_size;
   uint32_t sgot_size;
   uint32_t zero_size;
+  uint32_t back8_size;
   uint32_t back_size;
   uint32_t jump_resolve_off;
   uint32_t jump_off;
   uint32_t sgot_off;
+  uint32_t back8_off;
   uint32_t back_off;
   uint64_t entry_off;
   uint64_t entry_addr;
+  uint32_t flag_off;
   uint32_t check_off;
-  uint32_t stack_off
+  uint32_t stack_off; //stack to recover  
+  uint32_t stack_got; //shared stack got
 }js_header;

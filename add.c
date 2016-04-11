@@ -61,14 +61,16 @@ int jumpgot_write(int n, FILE* fp, FILE* fo, Elf64_Shdr *shdr, Elf64_Ehdr *ehdr)
 	//file starts with the offsets of jump and sgot
 	uint8_t *jump_resolve = malloc(JUMP_RESOLVE_SIZE * sizeof(uint8_t));
 	uint8_t *jump = malloc(JUMP_SIZE * n * sizeof(uint8_t));
-	uint8_t *sgot = malloc(SGOT_SIZE * (n + 2) * sizeof(uint8_t));
+	uint8_t *sgot = malloc(SGOT_SIZE * (n + 4) * sizeof(uint8_t));
 	uint8_t *back = malloc(BACK_SIZE * sizeof(uint8_t));
+	uint8_t *back8 = malloc(BACK_8PARAM_SIZE * sizeof(uint8_t));
 	
 	jshdr.jump_resolve_size = JUMP_RESOLVE_SIZE;
 	jshdr.jump_size = JUMP_SIZE * n;
-	jshdr.sgot_size = SGOT_SIZE * (n + 2);
+	jshdr.sgot_size = SGOT_SIZE * (n + 4);
 	jshdr.back_size = BACK_SIZE;
-	uint32_t zero_size = page_size - (sizeof(jshdr) + jshdr.jump_resolve_size + jshdr.jump_size + jshdr.back_size)%page_size;
+	jshdr.back8_size = BACK_8PARAM_SIZE;
+	uint32_t zero_size = page_size - (sizeof(jshdr) + jshdr.jump_resolve_size + jshdr.jump_size + jshdr.back_size + jshdr.back8_size)%page_size;
 	uint8_t *zero = malloc(zero_size * sizeof(uint8_t));
 	memset(zero , 0, zero_size);
 	printf("%d\n", zero_size);
@@ -81,10 +83,13 @@ int jumpgot_write(int n, FILE* fp, FILE* fo, Elf64_Shdr *shdr, Elf64_Ehdr *ehdr)
 	//get offset of part
 	jshdr.jump_resolve_off = sizeof(jshdr);
 	jshdr.jump_off = sizeof(jshdr) + jshdr.jump_resolve_size;
-	jshdr.sgot_off = sizeof(jshdr) + jshdr.jump_resolve_size + jshdr.jump_size + jshdr.back_size+ zero_size;
+	jshdr.sgot_off = sizeof(jshdr) + jshdr.jump_resolve_size + jshdr.jump_size + jshdr.back_size+ jshdr.back8_size+zero_size;
 	jshdr.back_off = jshdr.jump_off + jshdr.jump_size;
+	jshdr.back8_off = jshdr.back_off + jshdr.back_size;
 	jshdr.stack_off = jshdr.sgot_off + jshdr.sgot_size + sgot_zero_size; 
-	jshdr.check_off = jshdr.stack_off - SGOT_SIZE;
+	jshdr.flag_off = jshdr.stack_off - 3 * SGOT_SIZE;
+	jshdr.check_off = jshdr.stack_off - 2 * SGOT_SIZE;
+	jshdr.stack_got = jshdr.stack_off - SGOT_SIZE;
 	printf("back_off%x\n", jshdr.back_off);
 	printf("jump_off%x\n", jshdr.jump_off);
 	printf("sgot_off%x\n", jshdr.sgot_off);
@@ -93,26 +98,33 @@ int jumpgot_write(int n, FILE* fp, FILE* fo, Elf64_Shdr *shdr, Elf64_Ehdr *ehdr)
 	for(int i = 0; i < n; i++)
 	{
 		printf("handle No:%d\n", i);
-		jumpgot_write_n(i, jump + i * JUMP_SIZE, jshdr);
+		if(i== 0x37)
+			jumpgot_write_libcstart(i, jump + i * JUMP_SIZE, jshdr);
+		else if(i == 0x2a || i ==0x34)
+			jumpgot_write_8param(i, jump + i * JUMP_SIZE, jshdr);
+		else
+			jumpgot_write_n(i, jump + i * JUMP_SIZE, jshdr);
 	}
 	memset(sgot, 0, SGOT_SIZE * n);
 	jumpgot_write_back(back, jshdr);
+	jumpgot_write_8param_back(back8, jshdr);
 	fwrite(&jshdr, sizeof(jshdr), 1, fp);
 	fwrite(jump_resolve, JUMP_RESOLVE_SIZE, 1, fp);
 	fwrite(jump, JUMP_SIZE * n, 1, fp);
 	fwrite(back, BACK_SIZE, 1, fp);
+	fwrite(back8, BACK_8PARAM_SIZE, 1, fp);
 	fwrite(zero, zero_size, 1, fp);
-	fwrite(sgot, SGOT_SIZE * (n + 2), 1, fp);
+	fwrite(sgot, SGOT_SIZE * (n + 4), 1, fp);
 	fwrite(sgot_zero, sgot_zero_size, 1, fp);
 	fwrite(stack, page_size, 1, fp);
-
 	free(zero);
 }
-int jumpgot_write_back(uint8_t *back, struct js_header jshdr)
+int jumpgot_write_8param_back(uint8_t *back, struct  js_header jshdr)
 {
 	int pos = 0;
-	uint32_t stack_offset = jshdr.stack_off - (jshdr.back_off +BACK_STACK_OFF); 
-	
+	uint32_t stack_offset = jshdr.stack_off - (jshdr.back8_off + BACK_8PARAM_STACK_OFF); 
+	uint32_t stackgot_offset = jshdr.stack_got - (jshdr.back8_off + BACK_8PARAM_STACKGOT_OFF);
+	uint32_t flag_offset = jshdr.flag_off -  (jshdr.back8_off + BACK_8PARAM_FLAG_OFF); 
 	back[pos++] = 0x50;	//push rax
 	back[pos++] = 0x50;	//push rax
 	back[pos++] = 0x53;	//push rbx
@@ -207,6 +219,155 @@ int jumpgot_write_back(uint8_t *back, struct js_header jshdr)
 	back[pos++] = 0x59;	//pop rcx
 	back[pos++] = 0x5b;	//pop rbx
 	back[pos++] = 0x58;	//pop rax
+
+	back[pos++] = 0x48;	//add rsp, 0x16
+	back[pos++] = 0x83;
+	back[pos++] = 0xc4;
+	back[pos++] = 0x16;
+
+	back[pos++] =  0x48;	//xchg [rip + offset of stackgot], rsp
+	back[pos++] =  0x87;
+	back[pos++] =  0x25;
+	back[pos++] =  ((uint32_t)stackgot_offset>>0) & 0xff;
+	back[pos++] =  ((uint32_t)stackgot_offset>>8) & 0xff;
+	back[pos++] =  ((uint32_t)stackgot_offset>>16) & 0xff;
+	back[pos++] =  ((uint32_t)stackgot_offset>>24) & 0xff;
+
+	back[pos++] = 0x48;
+	back[pos++] = 0xc7;
+	back[pos++] = 0x05;
+	back[pos++] = ((uint32_t)flag_offset>>0) & 0xff;
+	back[pos++] = ((uint32_t)flag_offset>>8) & 0xff;
+	back[pos++] = ((uint32_t)flag_offset>>16) & 0xff;
+	back[pos++] = ((uint32_t)flag_offset>>24) & 0xff;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+
+	back[pos++] = 0xc3;	//ret
+}
+int jumpgot_write_back(uint8_t *back, struct js_header jshdr)
+{
+	int pos = 0;
+	uint32_t stack_offset = jshdr.stack_off - (jshdr.back_off + BACK_STACK_OFF); 
+	uint32_t stackgot_offset = jshdr.stack_got - (jshdr.back_off + BACK_STACKGOT_OFF);
+	uint32_t flag_offset = jshdr.flag_off -  (jshdr.back_off + BACK_FLAG_OFF); 
+	back[pos++] = 0x50;	//push rax
+	back[pos++] = 0x50;	//push rax
+	back[pos++] = 0x53;	//push rbx
+	back[pos++] = 0x51;	//push rcx
+	
+	back[pos++] = 0xb8;	//mov eax, 0
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0xb9;	//mov ecx, 1
+	back[pos++] = 0x01;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x0f;	//vmfunc
+	back[pos++] = 0x01;
+	back[pos++] = 0xd4;
+	// /*for test length:38*/
+	back[pos++] = 0x57;	//push rdi
+	back[pos++] = 0x56;	//push rsi
+	back[pos++] = 0x52;	//push rdx
+	back[pos++] = 0x6a;	//push 0x40
+	back[pos++] = 0x40;
+	back[pos++] = 0x48;	//mov rax, 0x1
+	back[pos++] = 0xc7;
+	back[pos++] = 0xc0;
+	back[pos++] = 0x01;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x48;	//mov rdi, 0x1
+	back[pos++] = 0xc7;
+	back[pos++] = 0xc7;
+	back[pos++] = 0x01;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x48;	//mov rsi, rsp
+	back[pos++] = 0x89;
+	back[pos++] = 0xe6;
+	back[pos++] = 0x48;	//mov rdx, 0x1
+	back[pos++] = 0xc7;
+	back[pos++] = 0xc2;
+	back[pos++] = 0x01;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x0f;	//syscall
+	back[pos++] = 0x05;
+	back[pos++] = 0x48;	//add rsp, 0x8
+	back[pos++] = 0x83;
+	back[pos++] = 0xc4;
+	back[pos++] = 0x08;
+	back[pos++] = 0x5a;	//pop rdx
+	back[pos++] = 0x5e;	//pop rsi
+	back[pos++] = 0x5f;	//pop rdi
+	// /*ret*/
+	
+	back[pos++] = 0x48;	//lea rcx, [rip + offset of stack]
+	back[pos++] = 0x8d;
+	back[pos++] = 0x0d;
+	back[pos++] = ((uint32_t)stack_offset>>0) & 0xff;
+	back[pos++] = ((uint32_t)stack_offset>>8) & 0xff;
+	back[pos++] = ((uint32_t)stack_offset>>16) & 0xff;
+	back[pos++] = ((uint32_t)stack_offset>>24) & 0xff;
+	back[pos++] = 0x48;	//mov rax, [rcx]
+	back[pos++] = 0x8b;
+	back[pos++] = 0x01;
+	back[pos++] = 0x48;	//add rax, rcx
+	back[pos++] = 0x01;
+	back[pos++] = 0xc8;
+	back[pos++] = 0x48;	//mov rbx, [rax]
+	back[pos++] = 0x8b;
+	back[pos++] = 0x18;
+	back[pos++] = 0x48;	//mov [rsp+0x18], rbx
+	back[pos++] = 0x89;
+	back[pos++] = 0x5c;
+	back[pos++] = 0x24;
+	back[pos++] = 0x18; 
+	back[pos++] = 0x48;	//mov rax, 0x8
+	back[pos++] = 0xc7;
+	back[pos++] = 0xc0;
+	back[pos++] = 0x08;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x48;	//sub [rcx], rax
+	back[pos++] = 0x29;
+	back[pos++] = 0x01;
+
+	back[pos++] = 0x59;	//pop rcx
+	back[pos++] = 0x5b;	//pop rbx
+	back[pos++] = 0x58;	//pop rax
+
+	back[pos++] =  0x48;	//xchg [rip + offset of stackgot], rsp
+	back[pos++] =  0x87;
+	back[pos++] =  0x25;
+	back[pos++] =  ((uint32_t)stackgot_offset>>0) & 0xff;
+	back[pos++] =  ((uint32_t)stackgot_offset>>8) & 0xff;
+	back[pos++] =  ((uint32_t)stackgot_offset>>16) & 0xff;
+	back[pos++] =  ((uint32_t)stackgot_offset>>24) & 0xff;
+
+	back[pos++] = 0x48;
+	back[pos++] = 0xc7;
+	back[pos++] = 0x05;
+	back[pos++] = ((uint32_t)flag_offset>>0) & 0xff;
+	back[pos++] = ((uint32_t)flag_offset>>8) & 0xff;
+	back[pos++] = ((uint32_t)flag_offset>>16) & 0xff;
+	back[pos++] = ((uint32_t)flag_offset>>24) & 0xff;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+	back[pos++] = 0x00;
+
 	back[pos++] = 0xc3;	//ret
 }
 int jumpgot_write_resolve(uint8_t *jump, struct js_header jshdr)
@@ -215,6 +376,9 @@ int jumpgot_write_resolve(uint8_t *jump, struct js_header jshdr)
 	uint32_t offset = jshdr.sgot_off - ( jshdr.jump_resolve_off + JUMP_RESOLVE_SIZE);
 	uint32_t back_offset = jshdr.back_off -  (jshdr. jump_resolve_off  + RESOLVE_INSN_OFF);
 	uint32_t stack_offset = jshdr.stack_off - (jshdr.jump_resolve_off + RESOLVE_STACK_OFF);
+	uint32_t stackgot_offset1 = jshdr.stack_got - (jshdr.jump_resolve_off + RESOLVE_STACKGOT_OFF1);
+	uint32_t stackgot_offset2 = jshdr.stack_got - (jshdr.jump_resolve_off + RESOLVE_STACKGOT_OFF2);
+	uint32_t stackgot_offset3 = jshdr.stack_got - (jshdr.jump_resolve_off + RESOLVE_STACKGOT_OFF3);
 	jump[pos++] = 0x50;	//push rax
 	jump[pos++] = 0x53;	//push rbx
 	jump[pos++] = 0x51;	//push rcx	
@@ -222,7 +386,7 @@ int jumpgot_write_resolve(uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x57;	//push rdi
 	jump[pos++] = 0x56;	//push rsi
 	jump[pos++] = 0x52;	//push rdx
-	jump[pos++] = 0x6a;	//push 0x40
+	jump[pos++] = 0x6a;	//push 0x23
 	jump[pos++] = 0x23;
 	jump[pos++] = 0x48;	//mov rax, 0x1
 	jump[pos++] = 0xc7;
@@ -272,50 +436,6 @@ int jumpgot_write_resolve(uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x01;
 	jump[pos++] = 0xd4;	//stable:54
 
-	jump[pos++] = 0x48;	//lea rcx, [rip + offset of stack]
-	jump[pos++] = 0x8d;
-	jump[pos++] = 0x0d;
-	jump[pos++] = ((uint32_t)stack_offset>>0) & 0xff;
-	jump[pos++] = ((uint32_t)stack_offset>>8) & 0xff;
-	jump[pos++] = ((uint32_t)stack_offset>>16) & 0xff;
-	jump[pos++] = ((uint32_t)stack_offset>>24) & 0xff;	
-	jump[pos++] = 0x48;	//mov rax, 0x08
-	jump[pos++] = 0xc7;
-	jump[pos++] = 0xc0;
-	jump[pos++] = 0x08;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x48;	//add [rcx], rax
-	jump[pos++] = 0x01;
-	jump[pos++] = 0x01;	
-	jump[pos++] = 0x48;	//mov rax, [rcx]
-	jump[pos++] = 0x8b;
-	jump[pos++] = 0x01;
-	jump[pos++] = 0x48;	//add rax, rcx
-	jump[pos++] = 0x01;
-	jump[pos++] = 0xc8;
-	jump[pos++] = 0x48;	//mov rbx, [rsp+0x28]
-	jump[pos++] = 0x8b;
-	jump[pos++] = 0x5c;
-	jump[pos++] = 0x24;
-	jump[pos++] = 0x28;
-	jump[pos++] = 0x48;	//mov [rax], rbx
-	jump[pos++] = 0x89;
-	jump[pos++] = 0x18;
-
-	jump[pos++] = 0x48;	//lea rax, [rip + offset of back]
-	jump[pos++] = 0x8d;
-	jump[pos++] = 0x05;
-	jump[pos++] = ((uint32_t)back_offset>>0) & 0xff;
-	jump[pos++] = ((uint32_t)back_offset>>8) & 0xff;
-	jump[pos++] = ((uint32_t)back_offset>>16) & 0xff;
-	jump[pos++] = ((uint32_t)back_offset>>24) & 0xff;
-	jump[pos++] = 0x48;	//mov [rsp+0x28], rax
-	jump[pos++] = 0x89;
-	jump[pos++] = 0x44;
-	jump[pos++] = 0x24;
-	jump[pos++] = 0x28;
 	jump[pos++] = 0x59;	//pop rcx
 	jump[pos++] = 0x5b;	//pop rbx
 	jump[pos++] = 0x58; 	//pop rax
@@ -327,17 +447,187 @@ int jumpgot_write_resolve(uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = ((uint32_t)offset>>16) & 0xff;
 	jump[pos++] = ((uint32_t)offset>>24) & 0xff;
 }
-int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
+int jumpgot_write_libcstart(int i, uint8_t *jump, struct js_header jshdr)
 {
 	int pos = 0;
 	uint32_t offset = (jshdr.sgot_off + SGOT_SIZE * (i + 1)) - (jshdr.jump_off + JUMP_SIZE * (i + 1));
+	uint32_t flag_offset1 = jshdr.flag_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_FLAG_OFF1);
+	uint32_t flag_offset2 = jshdr.flag_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_FLAG_OFF2);
 	uint32_t back_offset = jshdr.back_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_INSN_OFF);
 	uint32_t stack_offset = jshdr.stack_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACK_OFF);
 	uint32_t check_offset = jshdr.check_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_CHECK_OFF);
+	uint32_t stackgot_offset1 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF1);
+	uint32_t stackgot_offset2 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF2);
+	uint32_t stackgot_offset3 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF3);
 	jump[pos++] = 0x50;	//push rax
 	jump[pos++] = 0x53;	//push rbx
 	jump[pos++] = 0x51;	//push rcx	
+	
+	jump[pos++] = 0x41;	//push r9
+	jump[pos++] = 0x51;
+	jump[pos++] = 0x41;	//push r8
+	jump[pos++] = 0x50;
+	jump[pos++] = 0x51;	//push rcx
+	jump[pos++] = 0x52;	//push rdx
+	jump[pos++] = 0x56;	//push rsi
+	jump[pos++] = 0x57;	//push rdi
+	jump[pos++] = 0x48;	//lea rdi, [rip]
+	jump[pos++] = 0x8d;
+	jump[pos++] = 0x3d;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0xff;	//call check
+	jump[pos++] = 0x15;
+	jump[pos++] =  ((uint32_t)check_offset>>0) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>8) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>16) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>24) & 0xff;
+	
+	jump[pos++] = 0x5f;	//pop rdi
+	jump[pos++] = 0x5e;	//pop rsi
+	jump[pos++] = 0x5a;	//pop rdx
+	jump[pos++] = 0x59;	//pop rcx
+	jump[pos++] = 0x41;	//pop r8
+	jump[pos++] = 0x58;
+	jump[pos++] = 0x41;	//pop r9
+	jump[pos++] = 0x59;
+	/*for test length:38*/
+	jump[pos++] = 0x57;	//push rdi
+	jump[pos++] = 0x56;	//push rsi
+	jump[pos++] = 0x52;	//push rdx
+	jump[pos++] = 0x6a;	//push 0x40
+	jump[pos++] = 0x21;
+	jump[pos++] = 0x48;	//mov rax, 0x1
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0xc0;
+	jump[pos++] = 0x01;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x48;	//mov rdi, 0x1
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0x01;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x48;	//mov rsi, rsp
+	jump[pos++] = 0x89;
+	jump[pos++] = 0xe6;
+	jump[pos++] = 0x48;	//mov rdx, 0x1
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0xc2;
+	jump[pos++] = 0x01;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x0f;	//syscall
+	jump[pos++] = 0x05;
+	jump[pos++] = 0x48;	//add rsp, 0x8
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xc4;
+	jump[pos++] = 0x08;
+	jump[pos++] = 0x5a;	//pop rdx
+	jump[pos++] = 0x5e;	//pop rsi
+	jump[pos++] = 0x5f;	//pop rdi
 
+	jump[pos++] = 0xb8;	//mov eax,0
+	jump[pos++] = 0x00;	
+	jump[pos++] = 0x00;	
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0xb9;	//mov ecx,0 
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x0f;	//vmfunc
+	jump[pos++] = 0x01;
+	jump[pos++] = 0xd4;	//stable:83
+
+	jump[pos++] = 0x48;	//mov rcx, [rip + offset of stack]
+	jump[pos++] = 0x8b;
+	jump[pos++] = 0x0d;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>24) & 0xff;
+
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	//nop * 24
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+
+	jump[pos++] = 0x48;	//lea rax, [rip + offset of back]
+	jump[pos++] = 0x8d;
+	jump[pos++] = 0x05;
+	jump[pos++] = ((uint32_t)back_offset>>0) & 0xff;
+	jump[pos++] = ((uint32_t)back_offset>>8) & 0xff;
+	jump[pos++] = ((uint32_t)back_offset>>16) & 0xff;
+	jump[pos++] = ((uint32_t)back_offset>>24) & 0xff;
+	
+	jump[pos++] = 0x48;	//sub rcx, 0x08
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xe9;
+	jump[pos++] = 0x08;
+	jump[pos++] = 0x48;	//mov [rcx], rax
+	jump[pos++] = 0x89;
+	jump[pos++] = 0x01;
+
+	jump[pos++] = 0x48;	//mov [rip + offset of stack], rcx
+	jump[pos++] = 0x89;
+	jump[pos++] = 0x0d;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>24) & 0xff;
+
+	jump[pos++] = 0x59;	//pop rcx
+	jump[pos++] = 0x5b;	//pop rbx
+	jump[pos++] = 0x58; 	//pop rax
+	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;
+
+	jump[pos++] = 0xff;	//jmp got address 6 loc
+	jump[pos++] = 0x25;
+	jump[pos++] = ((uint32_t)offset>>0) & 0xff;
+	jump[pos++] = ((uint32_t)offset>>8) & 0xff;
+	jump[pos++] = ((uint32_t)offset>>16) & 0xff;
+	jump[pos++] = ((uint32_t)offset>>24) & 0xff;
+}
+int jumpgot_write_8param(int i, uint8_t *jump, struct js_header jshdr)
+{
+	int pos = 0;
+	uint32_t offset = (jshdr.sgot_off + SGOT_SIZE * (i + 1)) - (jshdr.jump_off + JUMP_SIZE * (i + 1));
+	uint32_t back_offset = jshdr.back8_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_INSN_OFF);
+	uint32_t stack_offset = jshdr.stack_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACK_OFF);
+	uint32_t check_offset = jshdr.check_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_CHECK_OFF);
+	uint32_t stackgot_offset1 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF1);
+	uint32_t stackgot_offset2 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF2);
+	uint32_t stackgot_offset3 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF3);
+	jump[pos++] = 0x50;	//push rax
+	jump[pos++] = 0x53;	//push rbx
+	jump[pos++] = 0x51;	//push rcx	
+	
 	jump[pos++] = 0x41;	//push r9
 	jump[pos++] = 0x51;
 	jump[pos++] = 0x41;	//push r8
@@ -421,39 +711,41 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = 0x00;
 	jump[pos++] = 0x0f;	//vmfunc
 	jump[pos++] = 0x01;
-	jump[pos++] = 0xd4;	//stable:54
+	jump[pos++] = 0xd4;	//stable:83
 
-	jump[pos++] = 0x48;	//lea rcx, [rip + offset of stack]
-	jump[pos++] = 0x8d;
+	jump[pos++] = 0x48;	//mov rcx, [rip + offset of stack]
+	jump[pos++] = 0x8b;
 	jump[pos++] = 0x0d;
-	jump[pos++] = ((uint32_t)stack_offset>>0) & 0xff;
-	jump[pos++] = ((uint32_t)stack_offset>>8) & 0xff;
-	jump[pos++] = ((uint32_t)stack_offset>>16) & 0xff;
-	jump[pos++] = ((uint32_t)stack_offset>>24) & 0xff;	
-	jump[pos++] = 0x48;	//mov rax, 0x08
-	jump[pos++] = 0xc7;
-	jump[pos++] = 0xc0;
-	jump[pos++] = 0x08;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x00;
-	jump[pos++] = 0x48;	//add [rcx], rax
-	jump[pos++] = 0x01;
-	jump[pos++] = 0x01;	
-	jump[pos++] = 0x48;	//mov rax, [rcx]
+	jump[pos++] = ((uint32_t)stackgot_offset1>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>24) & 0xff;
+
+	jump[pos++] = 0x48;
 	jump[pos++] = 0x8b;
-	jump[pos++] = 0x01;
-	jump[pos++] = 0x48;	//add rax, rcx
-	jump[pos++] = 0x01;
-	jump[pos++] = 0xc8;
-	jump[pos++] = 0x48;	//mov rbx, [rsp+0x18]
-	jump[pos++] = 0x8b;
-	jump[pos++] = 0x5c;
+	jump[pos++] = 0x44;
 	jump[pos++] = 0x24;
-	jump[pos++] = 0x18;
-	jump[pos++] = 0x48;	//mov [rax], rbx
+	jump[pos++] = 0x28;	//mov rax, [rsp + 0x28]
+	jump[pos++] = 0x48;
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xe9;
+	jump[pos++] = 0x08;	//sub rcx, 0x8
+	jump[pos++] = 0x48;
 	jump[pos++] = 0x89;
-	jump[pos++] = 0x18;
+	jump[pos++] = 0x01;	//mov [rcx], rax
+
+	jump[pos++] = 0x48;
+	jump[pos++] = 0x8b;
+	jump[pos++] = 0x44;
+	jump[pos++] = 0x24;
+	jump[pos++] = 0x20;	//mov rax, [rsp + 0x20]
+	jump[pos++] = 0x48;
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xe9;
+	jump[pos++] = 0x08;	//sub rcx, 0x8
+	jump[pos++] = 0x48;
+	jump[pos++] = 0x89;
+	jump[pos++] = 0x01;	//mov [rcx], rax
 
 	jump[pos++] = 0x48;	//lea rax, [rip + offset of back]
 	jump[pos++] = 0x8d;
@@ -462,14 +754,242 @@ int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
 	jump[pos++] = ((uint32_t)back_offset>>8) & 0xff;
 	jump[pos++] = ((uint32_t)back_offset>>16) & 0xff;
 	jump[pos++] = ((uint32_t)back_offset>>24) & 0xff;
-	jump[pos++] = 0x48;	//mov [rsp+0x18], rax
+	jump[pos++] = 0x48;	//sub rcx, 0x08
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xe9;
+	jump[pos++] = 0x08;
+	jump[pos++] = 0x48;	//mov [rcx], rax
 	jump[pos++] = 0x89;
-	jump[pos++] = 0x44;
-	jump[pos++] = 0x24;
-	jump[pos++] = 0x18;
+	jump[pos++] = 0x01;
+
+	jump[pos++] = 0x48;	//mov [rip + offset of stack], rcx
+	jump[pos++] = 0x89;
+	jump[pos++] = 0x0d;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>24) & 0xff;
+
 	jump[pos++] = 0x59;	//pop rcx
 	jump[pos++] = 0x5b;	//pop rbx
 	jump[pos++] = 0x58; 	//pop rax
+	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	//nop * 33
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+
+	jump[pos++] = 0x48;	//xchg rsp, [rip + offset of stack got]
+	jump[pos++] = 0x87;	
+	jump[pos++] = 0x25;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>24) & 0xff;
+
+	jump[pos++] = 0xff;	//jmp got address 6 loc
+	jump[pos++] = 0x25;
+	jump[pos++] = ((uint32_t)offset>>0) & 0xff;
+	jump[pos++] = ((uint32_t)offset>>8) & 0xff;
+	jump[pos++] = ((uint32_t)offset>>16) & 0xff;
+	jump[pos++] = ((uint32_t)offset>>24) & 0xff;
+}
+int jumpgot_write_n(int i, uint8_t *jump, struct js_header jshdr)
+{
+	int pos = 0;
+	uint32_t offset = (jshdr.sgot_off + SGOT_SIZE * (i + 1)) - (jshdr.jump_off + JUMP_SIZE * (i + 1));
+	uint32_t flag_offset1 = jshdr.flag_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_FLAG_OFF1);
+	uint32_t flag_offset2 = jshdr.flag_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_FLAG_OFF2);
+	uint32_t back_offset = jshdr.back_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_INSN_OFF);
+	uint32_t stack_offset = jshdr.stack_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACK_OFF);
+	uint32_t check_offset = jshdr.check_off - (jshdr.jump_off + JUMP_SIZE * i + JUMP_CHECK_OFF);
+	uint32_t stackgot_offset1 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF1);
+	uint32_t stackgot_offset2 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF2);
+	uint32_t stackgot_offset3 = jshdr.stack_got - (jshdr.jump_off + JUMP_SIZE * i + JUMP_STACKGOT_OFF3);
+	jump[pos++] = 0x50;	//push rax
+	jump[pos++] = 0x53;	//push rbx
+	jump[pos++] = 0x51;	//push rcx	
+	
+	jump[pos++] = 0x41;	//push r9
+	jump[pos++] = 0x51;
+	jump[pos++] = 0x41;	//push r8
+	jump[pos++] = 0x50;
+	jump[pos++] = 0x51;	//push rcx
+	jump[pos++] = 0x52;	//push rdx
+	jump[pos++] = 0x56;	//push rsi
+	jump[pos++] = 0x57;	//push rdi
+	jump[pos++] = 0x48;	//lea rdi, [rip]
+	jump[pos++] = 0x8d;
+	jump[pos++] = 0x3d;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0xff;	//call check
+	jump[pos++] = 0x15;
+	jump[pos++] =  ((uint32_t)check_offset>>0) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>8) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>16) & 0xff;
+	jump[pos++] =  ((uint32_t)check_offset>>24) & 0xff;
+	
+	jump[pos++] = 0x5f;	//pop rdi
+	jump[pos++] = 0x5e;	//pop rsi
+	jump[pos++] = 0x5a;	//pop rdx
+	jump[pos++] = 0x59;	//pop rcx
+	jump[pos++] = 0x41;	//pop r8
+	jump[pos++] = 0x58;
+	jump[pos++] = 0x41;	//pop r9
+	jump[pos++] = 0x59;
+	/*for test length:38*/
+	jump[pos++] = 0x57;	//push rdi
+	jump[pos++] = 0x56;	//push rsi
+	jump[pos++] = 0x52;	//push rdx
+	jump[pos++] = 0x6a;	//push 0x40
+	jump[pos++] = 0x21;
+	jump[pos++] = 0x48;	//mov rax, 0x1
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0xc0;
+	jump[pos++] = 0x01;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x48;	//mov rdi, 0x1
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0x01;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x48;	//mov rsi, rsp
+	jump[pos++] = 0x89;
+	jump[pos++] = 0xe6;
+	jump[pos++] = 0x48;	//mov rdx, 0x1
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0xc2;
+	jump[pos++] = 0x01;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x0f;	//syscall
+	jump[pos++] = 0x05;
+	jump[pos++] = 0x48;	//add rsp, 0x8
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xc4;
+	jump[pos++] = 0x08;
+	jump[pos++] = 0x5a;	//pop rdx
+	jump[pos++] = 0x5e;	//pop rsi
+	jump[pos++] = 0x5f;	//pop rdi
+
+	jump[pos++] = 0xb8;	//mov eax,0
+	jump[pos++] = 0x00;	
+	jump[pos++] = 0x00;	
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0xb9;	//mov ecx,0 
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x0f;	//vmfunc
+	jump[pos++] = 0x01;
+	jump[pos++] = 0xd4;	//stable:83
+
+	jump[pos++] = 0x48;	//mov rcx, [rip + offset of stack]
+	jump[pos++] = 0x8b;
+	jump[pos++] = 0x0d;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset1>>24) & 0xff;
+
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	//nop * 24
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;	
+	jump[pos++] = 0x90;jump[pos++] = 0x90;jump[pos++] = 0x90;
+
+
+	jump[pos++] = 0x48;	//lea rax, [rip + offset of back]
+	jump[pos++] = 0x8d;
+	jump[pos++] = 0x05;
+	jump[pos++] = ((uint32_t)back_offset>>0) & 0xff;
+	jump[pos++] = ((uint32_t)back_offset>>8) & 0xff;
+	jump[pos++] = ((uint32_t)back_offset>>16) & 0xff;
+	jump[pos++] = ((uint32_t)back_offset>>24) & 0xff;
+	
+	jump[pos++] = 0x48;	//sub rcx, 0x08
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xe9;
+	jump[pos++] = 0x08;
+	jump[pos++] = 0x48;	//mov [rcx], rax
+	jump[pos++] = 0x89;
+	jump[pos++] = 0x01;
+
+	jump[pos++] = 0x48;	//mov [rip + offset of stack], rcx
+	jump[pos++] = 0x89;
+	jump[pos++] = 0x0d;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset2>>24) & 0xff;
+
+	jump[pos++] = 0x59;	//pop rcx
+	jump[pos++] = 0x5b;	//pop rbx
+	jump[pos++] = 0x58; 	//pop rax
+	
+	jump[pos++] = 0xff;	//push [rip + offset of stack got]
+	jump[pos++] = 0x35;
+	jump[pos++] = ((uint32_t)flag_offset1>>0) & 0xff;
+	jump[pos++] = ((uint32_t)flag_offset1>>8) & 0xff;
+	jump[pos++] = ((uint32_t)flag_offset1>>16) & 0xff;
+	jump[pos++] = ((uint32_t)flag_offset1>>24) & 0xff;
+	jump[pos++] = 0x48;	//add rsp, 0x8
+	jump[pos++] = 0x83;
+	jump[pos++] = 0xc4;
+	jump[pos++] = 0x08;
+	jump[pos++] = 0x48;	//cmp [rsp - 0x8], 0x1
+	jump[pos++] = 0x83;
+	jump[pos++] = 0x7c;
+	jump[pos++] = 0x24;
+	jump[pos++] = 0xf8;
+	jump[pos++] = 0x01;
+
+	jump[pos++] = 0x0f;	//je
+	jump[pos++] = 0x84;
+	jump[pos++] = 0x12; 
+	jump[pos++] = 0x00; 
+	jump[pos++] = 0x00; 
+	jump[pos++] = 0x00; 
+	
+	jump[pos++] = 0x48;	//mov [rip + offset of flag],0x1
+	jump[pos++] = 0xc7;
+	jump[pos++] = 0x05;
+	jump[pos++] = ((uint32_t)flag_offset2>>0) & 0xff;
+	jump[pos++] = ((uint32_t)flag_offset2>>8) & 0xff;
+	jump[pos++] = ((uint32_t)flag_offset2>>16) & 0xff;
+	jump[pos++] = ((uint32_t)flag_offset2>>24) & 0xff;
+	jump[pos++] = 0x01;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	jump[pos++] = 0x00;
+	
+	jump[pos++] = 0x48;	//xchg rsp, [rip + offset of stack got]
+	jump[pos++] = 0x87;	
+	jump[pos++] = 0x25;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>0) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>8) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>16) & 0xff;
+	jump[pos++] = ((uint32_t)stackgot_offset3>>24) & 0xff;
 
 	jump[pos++] = 0xff;	//jmp got address 6 loc
 	jump[pos++] = 0x25;
@@ -603,27 +1123,6 @@ int main(int argc, char* argv[])
 	printf("plt size:%d\n",(unsigned)sh_temp->sh_size);
 	int pltnum = sh_temp->sh_size/16;
 	jumpgot_write(pltnum, fw, fp, shdr, ehdr);
-	//get program header
-	// Elf64_Phdr *phdr = malloc(sizeof(Elf64_Phdr) * ehdr->e_phnum);
-	// fseek(fp, ehdr->e_phoff, SEEK_SET);
-	// fread(phdr, sizeof(Elf64_Phdr), ehdr->e_phnum, fp);
-	// Elf64_Phdr *p_phdr = phdr;
-	// for(int i = 0; i < ehdr->e_phnum; i++)
-	// {
-	// 	printf("segment %d\tfilesize:%lx,\t offset:%lx\n", i, (unsigned long)p_phdr->p_filesz,  (unsigned long)p_phdr->p_offset);
-	// 	p_phdr++;
-	// }
-	// Elf64_Shdr *p_shdr = shdr;
-	// Elf64_Xword file_end = 0;
-	// for(int i = 0; i < ehdr->e_shnum; i++)
-	// {
-	// 	printf("section%d\tfilesize:%lx,\t offset:%lx\n", i, (unsigned long)p_shdr->sh_size,  (unsigned long)p_shdr->sh_offset);
-	// 	if(file_end < p_shdr->sh_offset + p_shdr->sh_size)
-	// 		file_end =  p_shdr->sh_offset + p_shdr->sh_size;
-	// 	p_shdr++;
-	// }
-	// printf("end of file:%lu\n", (unsigned long)file_end);
-	// rewrite_entry(fp, file_end, ehdr);
 	fclose(fp);
 	fclose(fw);
 	return 0;

@@ -1,3 +1,4 @@
+//branch cy
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +57,8 @@ int jumpgot_write(int n, FILE* fp, FILE* fo, Elf64_Shdr *shdr, Elf64_Ehdr *ehdr)
 	printf("entry_off is :%lx\n", entry_addr);
 	//calculate the offset in instructions
 	uint32_t cal_offset = ~(entry_addr + ADD_SIZE - old_entry) + 1;
-	rewrite_entry(fo, file_end, ehdr, zero_entry_size, cal_offset);
+	//delete rewrite entry
+	//rewrite_entry(fo, file_end, ehdr, zero_entry_size, cal_offset);
 
 	//file starts with the offsets of jump and sgot
 	uint8_t *jump_resolve = malloc(JUMP_RESOLVE_SIZE * sizeof(uint8_t));
